@@ -1,0 +1,17 @@
+{
+    "name": "chstudio/phing-ci",
+    "description": "A collection of Phing buildfiles and Tasks used for continuous integration",
+    "license": "Apache-2.0",
+    "authors": [
+        {
+            "name": "Stephane HULARD",
+            "email": "s.hulard@chstudio.fr"
+        }
+    ],
+    "require": {
+        "phing/phing": "~2.0"
+    },
+    "config": {
+        "bin-dir": "bin"
+    }
+}
