@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<project name="Phing CI tasks" default="help">
+	<!-- Load tasks -->
+	<taskdef name="task:download" classname="dist.phing.tasks.DownloadTask" />
+	<taskdef name="task:xpath" classname="dist.phing.tasks.XpathTask" />
+	<taskdef name="task:httpstatus" classname="dist.phing.tasks.HttpStatusTask" />
+
+	<!-- Load our configuration -->
+	<php function="constant" returnProperty="env.ds">
+	  <param value="DIRECTORY_SEPARATOR"/>
+	</php>
+
+	<property environment="env" />
+	<property name="package" value="${phing.project.name}" override="true"/>
+
+	<!-- Load configuration -->
+	<property file="build.dist.properties" />
+	<if>
+		<available file="build.properties" />
+		<then>
+			<property file="build.properties" override="true" />
+		</then>
+	</if>
+
+	<import file="build/solr.xml" />
+
+<!--##########################################################################################################-->
+	<target name="help">
+		<echo msg="This is a tool to handle some CI actions..." />
+		<echo msg="Execute `phing -l` for details about possible tasks" />
+	</target>
+</project>
