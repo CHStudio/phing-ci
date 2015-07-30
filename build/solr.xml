@@ -1,0 +1,405 @@
+<?xml version="1.0"?>
+<project name="solr" default="help" description="Handle SolR administration tasks" basedir=".">
+  <!-- Load our configuration -->
+  <php function="constant" returnProperty="env.ds">
+    <param value="DIRECTORY_SEPARATOR"/>
+  </php>
+
+  <property environment="env" />
+
+
+<!--##########################################################################################################-->
+  <target name="help">
+    <exportproperties targetfile="output.props" />
+    <echo message="SolR Installer" />
+    <echo message="  solr:install     -> Install SolR in the current instance" />
+    <echo message="  solr:clean       -> Clean SolR installed files" />
+    <echo message="  solr:start       -> Start tomcat container + SolR instance" />
+    <echo message="  solr:stop        -> Stop the container" />
+    <echo message="  solr:core:new    -> Create a new core based on the /config/solr/core sample" />
+    <echo message="  solr:core:update -> Update an existing core based on update /config/solr/core sample" />
+    <echo message="  solr:core:remove -> Remove a core from the current running SolR" />
+    <echo message="  solr:core:reload -> Reload a core to apply configuration updates" />
+  </target>
+<!--##########################################################################################################-->
+  <target name="secure:properties">
+    <propertyprompt
+      propertyName="tomcat.version"
+      defaultValue="7.0.59"
+      promptText="Define which version of Tomcat used"
+      useExistingValue="true"
+    />
+    <propertyprompt
+      propertyName="solr.version"
+      defaultValue="3.6.2"
+      promptText="Define which version of SolR used"
+      useExistingValue="true"
+    />
+  </target>
+<!--##########################################################################################################-->
+  <target name="secure:input" description="Request user input before validating the current request" hidden="true">
+    <propertyprompt
+      propertyName="secure.input"
+      defaultValue="N"
+      promptText="Are your sure you want to do that"
+      useExistingValue="true"
+    />
+    <php function="strtolower" returnProperty="secure.input">
+      <param value="${secure.input}" />
+    </php>
+    <if>
+      <equals arg1="${secure.input}" arg2="y" />
+      <else>
+        <fail message="To perform the requested action, you must accept by giving Y" />
+      </else>
+    </if>
+  </target>
+<!--##########################################################################################################-->
+<!-- SolR targets ############################################################################################-->
+<!--##########################################################################################################-->
+  <target name="solr:install" depends="secure:input,secure:properties" description="Install SolR on the current instance">
+    <if>
+      <and>
+        <available file="bin/tomcat" />
+        <available file="bin/solr" />
+        <not><isset property="force" /></not>
+      </and>
+      <then>
+        <fail message="SolR has already been installed!" />
+      </then>
+      <else>
+        <phingcall target="solr:clean" />
+      </else>
+    </if>
+
+    <php function="substr" returnProperty="tomcat.version.major">
+      <param value="${tomcat.version}" />
+      <param value="0" />
+      <param value="1" />
+    </php>
+
+    <property name="solr.url" value="http://archive.apache.org/dist/lucene/solr/${solr.version}/apache-solr-${solr.version}.tgz" override="false" />
+    <property name="tomcat.url" value="http://archive.apache.org/dist/tomcat/tomcat-${tomcat.version.major}/v${tomcat.version}/bin/apache-tomcat-${tomcat.version}.tar.gz" override="false" />
+
+    <echo msg="Try to install Tomcat ${tomcat.version} from: ${tomcat.url}" />
+    <task:download url="${tomcat.url}" path="tomcat.tgz" />
+    <untar file="tomcat.tgz" todir="bin" />
+    <delete file="tomcat.tgz" />
+    <move file="bin/apache-tomcat-${tomcat.version}" tofile="bin/tomcat" />
+    <mkdir dir="bin/tomcat/conf/Catalina/localhost" />
+    <chmod mode="0755">
+      <fileset dir="bin/tomcat/bin">
+        <include name="*.sh" />
+        <include name="*.bat" />
+      </fileset>
+    </chmod>
+    <echo msg="Tomcat successfully installed!" />
+
+    <echo msg="Try to install SolR ${solr.version} from: ${solr.url}" />
+    <task:download url="${solr.url}" path="solr.tgz" />
+    <untar file="solr.tgz" todir="bin" />
+    <delete file="solr.tgz" />
+    <move file="bin/apache-solr-${solr.version}/dist" todir="bin/solr" />
+    <move file="bin/apache-solr-${solr.version}/contrib" todir="bin/solr" />
+    <move file="bin/apache-solr-${solr.version}/example/webapps/solr.war" todir="bin/solr/dist" />
+    <delete dir="bin/apache-solr-${solr.version}" />
+    <echo msg="SolR successfully installed!" />
+
+    <echo msg="Initialize SolR configuration" />
+    <copy file="config/solr/webapp.xml" tofile="bin/tomcat/conf/Catalina/localhost/solr.xml" />
+    <copy file="config/solr/solr.xml" todir="bin/solr" />
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:clean" depends="secure:input,solr:status" description="Cleanup SolR instance files">
+    <if>
+      <equals arg1="${solr.status}" arg2="200" />
+      <then>
+        <phingcall target="solr:stop" />
+      </then>
+    </if>
+
+    <delete dir="bin/solr" />
+    <delete dir="bin/tomcat" />
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:clean:cores" depends="secure:input,solr:status" description="Cleanup SolR instance files">
+    <if>
+      <equals arg1="${solr.status}" arg2="200" />
+      <then>
+        <phingcall target="solr:stop" />
+      </then>
+    </if>
+
+    <delete dir="bin/solr/cores" />
+    <mkdir dir="bin/solr/cores" />
+    <copy file="config/solr/solr.xml" tofile="bin/solr/solr.xml" overwrite="true" />
+
+    <if>
+      <equals arg1="${solr.status}" arg2="200" />
+      <then>
+        <phingcall target="solr:start" />
+      </then>
+    </if>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:start" depends="solr:status" description="Start the SolR running instance">
+    <if>
+      <equals arg1="${solr.status}" arg2="200" />
+      <then>
+        <echo msg="SolR is already running, can't be started" />
+      </then>
+      <else>
+        <if>
+          <os family="windows" />
+          <then>
+            <exec command="cd bin/tomcat/bin &amp;&amp; startup.bat" checkreturn="true" logoutput="true" />
+          </then>
+          <else>
+            <exec command="cd bin/tomcat/bin &amp;&amp; ./startup.sh" checkreturn="true" logoutput="true" />
+          </else>
+        </if>
+        <echo msg="SolR was started" />
+      </else>
+    </if>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:stop" depends="solr:status" description="Stop the SolR running instance">
+    <if>
+      <equals arg1="${solr.status}" arg2="200" />
+      <then>
+        <if>
+          <os family="windows" />
+          <then>
+            <exec command="cd bin/tomcat/bin &amp;&amp; shutdown.bat" checkreturn="true" logoutput="true" />
+          </then>
+          <else>
+            <exec command="cd bin/tomcat/bin &amp;&amp; ./shutdown.sh" checkreturn="true" logoutput="true" />
+          </else>
+        </if>
+        <echo msg="SolR was stopped" />
+      </then>
+      <else>
+        <echo msg="SolR is not running, can't be stopped" />
+      </else>
+    </if>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:status" description="Check that current SolR instance is running" hidden="true">
+    <if>
+      <available file="bin/tomcat/conf/server.xml" />
+      <then>
+        <task:xpath path="bin/tomcat/conf/server.xml" xpath="//Connector[@protocol='HTTP/1.1']/@port" property="tomcat.port" />
+        <task:xpath path="bin/tomcat/conf/server.xml" xpath="//Engine[@name='Catalina']/@defaultHost" property="tomcat.host" />
+        <task:httpstatus url="http://${tomcat.host}:${tomcat.port}/solr/" property="solr.status" />
+      </then>
+      <else>
+        <property name="solr.status" value="404" />
+      </else>
+    </if>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:status:fail" depends="solr:status" description="Fail if the current SolR instance is running" hidden="true">
+    <if>
+      <not><equals arg1="${solr.status}" arg2="200" /></not>
+      <then>
+        <fail msg="SolR is not running!" />
+      </then>
+      <else>
+        <echo msg="SolR is running!" />
+      </else>
+    </if>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:core:request-name" hidden="true" description="A specific target to request the core name if not defined">
+    <if>
+      <not><isset property="core.name" /></not>
+      <then>
+        <echo message="Enter the core name:" />
+        <propertyprompt propertyName="core.name" defaultValue="null" promptText="     [echo] Answer (no space and no special chars): " />
+
+        <if>
+          <equals arg1="${core.name}" arg2="null" />
+          <then>
+            <fail message="You need to enter a valid Core Name (without space and without special chars)" />
+          </then>
+        </if>
+      </then>
+    </if>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:core:request-update" hidden="true" description="A specific target to request the core name if not defined">
+    <property name="core.request.parameters.name" value="core" override="true" />
+    <property name="core.request.complement.master" value="" override="true" />
+    <property name="core.request.complement.slave" value="" override="true" />
+    <if>
+      <equals arg1="${core.action}" arg2="CREATE" />
+      <then>
+        <property name="core.request.parameters.name" value="name" override="true" />
+        <property name="core.request.complement.master" value="&amp;instanceDir=cores/${core.name}/master" override="true" />
+        <property name="core.request.complement.slave" value="&amp;instanceDir=cores/${core.name}/slave" override="true" />
+      </then>
+    </if>
+
+    <php function="file_get_contents" returnProperty="create.return">
+      <param value="http://${tomcat.host}:${tomcat.port}/solr/admin/cores?action=${core.action}&amp;${core.request.parameters.name}=${core.name}-master${core.request.complement.master}"/>
+    </php>
+    <echo message="${create.return}" />
+
+    <php function="file_get_contents" returnProperty="create.return">
+      <param value="http://${tomcat.host}:${tomcat.port}/solr/admin/cores?action=${core.action}&amp;${core.request.parameters.name}=${core.name}-slave${core.request.complement.slave}"/>
+    </php>
+    <echo message="${create.return}" />
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:core:populate" hidden="true" description="Fill the specified core.name folder with a valid SolR core from SAMPLE">
+    <copy todir="bin/solr/cores/${core.name}">
+      <fileset dir="config/solr/core">
+        <include name="**/*" />
+      </fileset>
+    </copy>
+
+    <!--
+      Update DataImport content with current content path
+    -->
+    <if>
+      <not><isset property="core.dataimport" /></not>
+      <then>
+        <echo message="Enter DataImportHandler data path:" />
+        <propertyprompt propertyName="core.dataimport" defaultValue="${core.dataimport.baseDir}" promptText="     [echo] Answer: " />
+      </then>
+    </if>
+
+    <reflexive>
+      <fileset dir="bin/solr/cores/${core.name}">
+        <include name="master/conf/data-config.xml" />
+        <include name="master/conf/schema.xml" />
+        <include name="slave/conf/schema.xml" />
+        <include name="slave/conf/solrcore.properties" />
+      </fileset>
+
+      <filterchain>
+        <replacetokens begintoken="{{" endtoken="}}">
+          <token key="DATAIMPORT.FILEPATH" value="${core.dataimport}" />
+          <token key="CORE.NAME" value="${core.name}" />
+          <token key="SOLR.HOST" value="${tomcat.host}" />
+          <token key="SOLR.PORT" value="${tomcat.port}" />
+        </replacetokens>
+      </filterchain>
+    </reflexive>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:core:new" depends="solr:status:fail,solr:core:request-name" description="Create a new core in current SolR instance">
+    <if>
+      <available file="bin/solr/cores/${core.name}" type="dir" property="core.name.available" />
+      <then>
+        <fail message="Core Name entered bin/solr/cores/${core.name} is not available please enter another" />
+      </then>
+      <else>
+        <mkdir dir="bin/solr/cores/${core.name}" />
+
+        <phingcall target="solr:core:populate" />
+
+        <phingcall target="solr:core:request-update">
+          <param name="core.action" value="CREATE" />
+        </phingcall>
+      </else>
+    </if>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:core:update" depends="solr:status:fail,solr:core:request-name" description="Update a solr core in current SolR instance">
+    <property name="core.previous-name" value="_${core.name}" />
+    <if>
+      <not><available file="bin/solr/cores/${core.name}" type="dir" /></not>
+      <then>
+        <fail message="No core named ${core.name} was previously created, use solr:core:new instead" />
+      </then>
+    </if>
+
+    <trycatch property="error">
+      <try>
+        <task:xpath path="bin/solr/cores/${core.name}/master/conf/data-config.xml" xpath="/dataConfig/document/entity/@baseDir" property="core.dih.baseDir" />
+
+        <move file="bin/solr/cores/${core.name}" tofile="bin/solr/cores/${core.previous-name}" includeemptydirs="true" />
+        <mkdir dir="bin/solr/cores/${core.name}" />
+        <phingcall target="solr:core:populate">
+          <param name="core.dataimport.baseDir" value="${core.dih.baseDir}" />
+        </phingcall>
+
+        <if>
+          <available file="bin/solr/cores/${core.previous-name}/master/data" type="dir" />
+          <then>
+            <copy todir="bin/solr/cores/${core.name}/master/data">
+              <fileset dir="bin/solr/cores/${core.previous-name}/master/data" defaultexcludes="false">
+                <include name="**/*" />
+              </fileset>
+            </copy>
+          </then>
+        </if>
+        <if>
+          <available file="bin/solr/cores/${core.previous-name}/slave/data" type="dir" />
+          <then>
+            <copy todir="bin/solr/cores/${core.name}/slave/data">
+              <fileset dir="bin/solr/cores/${core.previous-name}/slave/data" defaultexcludes="false">
+                <include name="**/*" />
+              </fileset>
+            </copy>
+          </then>
+        </if>
+        <phingcall target="solr:core:request-update">
+          <param name="core.action" value="RELOAD" />
+        </phingcall>
+
+        <delete dir="bin/solr/cores/${core.previous-name}" />
+        <echo message="Core succesfully updated !" />
+      </try>
+      <catch>
+        <if>
+          <not><available file="bin/solr/cores/${core.previous-name}" type="dir" /></not>
+          <then>
+            <delete dir="bin/solr/cores/${core.name}" />
+            <move file="bin/solr/cores/${core.previous-name}" tofile="bin/solr/cores/${core.name}" includeemptydirs="true" />
+            <phingcall target="solr:core:request-update">
+              <param name="core.action" value="RELOAD" />
+            </phingcall>
+          </then>
+        </if>
+        <fail message="Error during core update process: ${error} !" />
+      </catch>
+    </trycatch>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:core:reload" depends="solr:status:fail,solr:core:request-name" description="Reload a specified core from current SolR instance">
+    <if>
+      <available file="bin/solr/cores/${core.name}" type="dir" />
+      <then>
+        <phingcall target="solr:core:request-update">
+          <param name="core.action" value="RELOAD" />
+        </phingcall>
+      </then>
+      <else>
+        <echo message="Core Name entered bin/solr/cores/${core.name} is not an existant core please enter another" />
+      </else>
+    </if>
+  </target>
+<!--##########################################################################################################-->
+  <target name="solr:core:remove" depends="solr:status:fail,solr:core:request-name" description="Remove a specified core from current SolR instance">
+    <if>
+      <available file="bin/solr/cores/${core.name}" type="dir" />
+      <then>
+        <phingcall target="solr:core:request-update">
+          <param name="core.action" value="UNLOAD" />
+        </phingcall>
+
+        <delete includeemptydirs="true">
+          <fileset dir="bin/solr/cores/${core.name}" defaultexcludes="false">
+            <include name="**/*" />
+          </fileset>
+        </delete>
+        <delete dir="bin/solr/cores/${core.name}" />
+      </then>
+      <else>
+        <echo message="Core Name entered bin/solr/cores/${core.name} is not an existant core please enter another" />
+      </else>
+    </if>
+  </target>
+</project>
